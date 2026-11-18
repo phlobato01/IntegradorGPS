@@ -110,6 +110,23 @@ def ler_csv_gps(arquivo):
         "Não foi possível ler o CSV GPS."
     )
 
+def obter_eventos_filtrados(
+    df,
+    limite_superior,
+    limite_inferior
+):
+
+    return df[
+        (
+            df["aceleracao_z"]
+            >= limite_superior
+        )
+        |
+        (
+            df["aceleracao_z"]
+            <= limite_inferior
+        )
+    ].copy()
 
 def criar_mapa(
     df,
@@ -161,17 +178,11 @@ def criar_mapa(
 
     # apenas eventos > 1.5g
 
-    eventos = df[
-        (
-            df["aceleracao_z"]
-            >= limite_superior
-        )
-        |
-        (
-            df["aceleracao_z"]
-            <= limite_inferior
-        )
-    ].copy()
+    eventos = obter_eventos_filtrados(
+        df,
+        limite_superior,
+        limite_inferior
+    ).copy()
 
     eventos_pos = eventos[
         eventos["aceleracao_z"]
@@ -277,6 +288,112 @@ def criar_mapa(
 
     return mapa
 
+def gerar_kml_eventos(
+    eventos,
+    rota
+):
+
+    kml = []
+
+    kml.append(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+    )
+
+    kml.append(
+        '<kml xmlns="http://www.opengis.net/kml/2.2">'
+    )
+
+    kml.append("<Document>")
+
+    # ====================================
+    # ROTA
+    # ====================================
+
+    kml.append("""
+    <Placemark>
+
+        <name>Rota Completa</name>
+
+        <Style>
+            <LineStyle>
+                <color>ffff0000</color>
+                <width>4</width>
+            </LineStyle>
+        </Style>
+
+        <LineString>
+
+            <tessellate>1</tessellate>
+
+            <coordinates>
+    """)
+
+    for _, row in rota.iterrows():
+
+        kml.append(
+            f"{row['longitude']},{row['latitude']},0"
+        )
+
+    kml.append("""
+            </coordinates>
+        </LineString>
+    </Placemark>
+    """)
+
+    for _, row in eventos.iterrows():
+
+        if row["aceleracao_z"] >= 0:
+
+            cor = "ff0000ff"  # vermelho
+
+        else:
+
+            cor = "ffff00ff"  # roxo
+
+        descricao = f"""
+        <![CDATA[
+        <b>Aceleração:</b> {row['aceleracao_z']:.3f} g<br>
+        <b>Timestamp GPS:</b> {row['timestamp_gps']}<br>
+        <b>Timestamp ACC:</b> {row['timestamp_acelerometro']}<br>
+        <b>Diferença:</b> {row['diferenca_ms']:.1f} ms<br>
+        <b>Latitude:</b> {row['latitude']}<br>
+        <b>Longitude:</b> {row['longitude']}
+        ]]>
+        """
+
+        kml.append(f"""
+        <Placemark>
+
+            <name>
+            {row['aceleracao_z']:.2f} g
+            </name>
+
+            <description>
+            {descricao}
+            </description>
+
+            <Style>
+                <IconStyle>
+                    <color>{cor}</color>
+                    <scale>1.2</scale>
+                </IconStyle>
+            </Style>
+
+            <Point>
+                <coordinates>
+                {row['longitude']},
+                {row['latitude']},
+                0
+                </coordinates>
+            </Point>
+
+        </Placemark>
+        """)
+
+    kml.append("</Document>")
+    kml.append("</kml>")
+
+    return "\n".join(kml)
 
 # ======================================================
 # ENTRADA
@@ -563,6 +680,12 @@ if st.button("Processar"):
             eventos_negativos
         )
 
+        eventos_kml = obter_eventos_filtrados(
+            resultado,
+            limite_superior,
+            limite_inferior
+        )
+
         # ==========================================
         # MAPA
         # ==========================================
@@ -586,7 +709,7 @@ if st.button("Processar"):
         # ==========================================
         # DOWNLOAD
         # ==========================================
-        
+           
         resultado_exportar = resultado[
             [
                 "data_hora_acc",
@@ -605,6 +728,29 @@ if st.button("Processar"):
             sep=";"
         ).encode(
             "utf-8"
+        )
+
+        rota_kml = resultado[
+            [
+                "latitude",
+                "longitude"
+            ]
+        ].drop_duplicates().reset_index(drop=True)
+
+        kml = gerar_kml_eventos(
+            eventos_kml,
+            rota_kml
+        )
+
+        st.write(
+            f"Eventos exportados para KML: {len(eventos_kml)}"
+        )
+
+        st.download_button(
+            label="🌎 Baixar KML para Google Earth",
+            data=kml,
+            file_name="eventos_aceleracao.kml",
+            mime="application/vnd.google-earth.kml+xml"
         )
 
         st.download_button(
