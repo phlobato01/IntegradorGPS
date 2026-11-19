@@ -65,7 +65,7 @@ if st.session_state.jornada_ativa:
     )
 
     st.write(
-        "Toque em 'Capturar GPS' e permita o acesso à localização."
+        "Ao registrar o evento, o navegador solicitará acesso à localização."
     )
 
     if st.button(
@@ -74,54 +74,17 @@ if st.session_state.jornada_ativa:
 
         location = get_geolocation()
 
-        if not descricao.strip():
+        st.subheader(
+            "DEBUG GPS"
+        )
 
-            st.warning(
-                "Informe a descrição."
-            )
+        st.write(
+            type(location)
+        )
 
-        elif not location:
-
-            st.warning(
-                "Localização não disponível."
-            )
-
-        else:
-
-            st.success(
-                "GPS recebido. Veja os dados acima."
-            )
-            
-            st.write(location)
-
-            agora = datetime.now()
-
-            st.session_state.eventos.append(
-                {
-                    "Data":
-                        agora.strftime(
-                            "%Y-%m-%d"
-                        ),
-
-                    "Hora":
-                        agora.strftime(
-                            "%H:%M:%S"
-                        ),
-
-                    "Descrição do Evento":
-                        descricao,
-
-                    "Latitude":
-                        location["coords"]["latitude"],
-
-                    "Longitude":
-                        location["coords"]["longitude"]
-                }
-            )
-
-            st.success(
-                "Evento registrado."
-            )
+        st.write(
+            location
+        )
 
         if not descricao.strip():
 
