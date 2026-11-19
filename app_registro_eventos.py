@@ -75,7 +75,7 @@ if st.session_state.jornada_ativa:
     )
 
     st.info(
-        "Primeiro obtenha o GPS, depois registre o evento."
+        "Toque na mira para atualizar sua posição antes de registrar o evento."
     )
 
     # --------------------------------------------
@@ -84,37 +84,12 @@ if st.session_state.jornada_ativa:
 
     location = streamlit_geolocation()
 
-    if st.button(
-        "📍 Obter GPS Atual"
-    ):
-
-        st.write("DEBUG GPS")
-
-        st.write(location)
-
-        if (
-            location
-            and location.get("latitude")
-            is not None
-        ):
-
-            st.session_state.latitude_atual = (
-                location["latitude"]
+    if location:
+            st.write(
+                "Debug GPS:"
             )
 
-            st.session_state.longitude_atual = (
-                location["longitude"]
-            )
-
-            st.success(
-                "GPS atualizado."
-            )
-
-        else:
-
-            st.error(
-                "Não foi possível obter a localização."
-            )
+            st.write(location)
 
     # --------------------------------------------
     # EXIBIÇÃO GPS
