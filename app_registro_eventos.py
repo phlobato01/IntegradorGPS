@@ -246,3 +246,19 @@ if len(df) > 0:
         f"eventos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv"
     )
+
+    if st.button(
+        "🗑 Limpar Eventos"
+    ):
+
+        cursor.execute(
+            "DELETE FROM eventos"
+        )
+
+        conn.commit()
+
+        st.success(
+            "Todos os eventos foram apagados."
+        )
+
+        st.rerun()
