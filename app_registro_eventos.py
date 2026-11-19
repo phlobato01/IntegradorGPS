@@ -67,24 +67,47 @@ if st.session_state.jornada_ativa:
     st.write(
         "Ao registrar o evento, o navegador solicitará acesso à localização."
     )
+# início teste
 
     if st.button(
         "📍 Registrar Evento"
     ):
 
-        location = get_geolocation()
+        try:
 
-        st.subheader(
-            "DEBUG GPS"
-        )
+            location = get_geolocation()
 
-        st.write(
-            type(location)
-        )
+            st.subheader(
+                "DEBUG GPS"
+            )
 
-        st.write(
-            location
-        )
+            st.write(
+                "Tipo:"
+            )
+
+            st.write(
+                str(type(location))
+            )
+
+            st.write(
+                "Conteúdo:"
+            )
+
+            st.write(
+                location
+            )
+
+        except Exception as erro:
+
+            st.error(
+                f"ERRO GPS: {erro}"
+            )
+
+            st.exception(
+                erro
+            )
+
+#fim teste
 
         if not descricao.strip():
 
