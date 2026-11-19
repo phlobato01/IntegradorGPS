@@ -1,8 +1,12 @@
 import streamlit as st
 import pandas as pd
+
 from datetime import datetime
 from streamlit_geolocation import streamlit_geolocation
-from streamlit_js_eval import get_geolocation
+
+# =====================================================
+# CONFIGURAÇÃO
+# =====================================================
 
 st.set_page_config(
     page_title="Registro de Eventos",
@@ -23,13 +27,19 @@ if "jornada_ativa" not in st.session_state:
 if "eventos" not in st.session_state:
     st.session_state.eventos = []
 
+if "latitude_atual" not in st.session_state:
+    st.session_state.latitude_atual = None
+
+if "longitude_atual" not in st.session_state:
+    st.session_state.longitude_atual = None
+
 # =====================================================
-# INICIAR JORNADA
+# INICIAR / ENCERRAR
 # =====================================================
 
-col1, col2 = st.columns(2)
+c1, c2 = st.columns(2)
 
-with col1:
+with c1:
 
     if st.button(
         "▶ Iniciar Jornada"
@@ -42,7 +52,7 @@ with col1:
             "Jornada iniciada."
         )
 
-with col2:
+with c2:
 
     if st.button(
         "⏹ Encerrar Jornada"
@@ -51,7 +61,7 @@ with col2:
         st.session_state.jornada_ativa = False
 
 # =====================================================
-# REGISTRO
+# BLOCO PRINCIPAL
 # =====================================================
 
 if st.session_state.jornada_ativa:
@@ -64,50 +74,73 @@ if st.session_state.jornada_ativa:
         "Descrição do evento"
     )
 
-    st.write(
-        "Ao registrar o evento, o navegador solicitará acesso à localização."
+    st.info(
+        "Primeiro obtenha o GPS, depois registre o evento."
     )
-# início teste
+
+    # --------------------------------------------
+    # BOTÃO GPS
+    # --------------------------------------------
+
+    location = streamlit_geolocation()
 
     if st.button(
-        "📍 Registrar Evento"
+        "📍 Obter GPS Atual"
     ):
 
-        try:
+        st.write("DEBUG GPS")
 
-            location = get_geolocation()
+        st.write(location)
 
-            st.subheader(
-                "DEBUG GPS"
+        if (
+            location
+            and location.get("latitude")
+            is not None
+        ):
+
+            st.session_state.latitude_atual = (
+                location["latitude"]
             )
 
-            st.write(
-                "Tipo:"
+            st.session_state.longitude_atual = (
+                location["longitude"]
             )
 
-            st.write(
-                str(type(location))
+            st.success(
+                "GPS atualizado."
             )
 
-            st.write(
-                "Conteúdo:"
-            )
-
-            st.write(
-                location
-            )
-
-        except Exception as erro:
+        else:
 
             st.error(
-                f"ERRO GPS: {erro}"
+                "Não foi possível obter a localização."
             )
 
-            st.exception(
-                erro
-            )
+    # --------------------------------------------
+    # EXIBIÇÃO GPS
+    # --------------------------------------------
 
-#fim teste
+    st.subheader(
+        "Última posição obtida"
+    )
+
+    st.write(
+        "Latitude:",
+        st.session_state.latitude_atual
+    )
+
+    st.write(
+        "Longitude:",
+        st.session_state.longitude_atual
+    )
+
+    # --------------------------------------------
+    # REGISTRAR EVENTO
+    # --------------------------------------------
+
+    if st.button(
+        "✅ Registrar Evento"
+    ):
 
         if not descricao.strip():
 
@@ -116,12 +149,12 @@ if st.session_state.jornada_ativa:
             )
 
         elif (
-            location is None
-            or location["latitude"] is None
+            st.session_state.latitude_atual
+            is None
         ):
 
             st.warning(
-                "Localização não disponível."
+                "Primeiro obtenha a posição GPS."
             )
 
         else:
@@ -144,10 +177,10 @@ if st.session_state.jornada_ativa:
                         descricao,
 
                     "Latitude":
-                        location["latitude"],
+                        st.session_state.latitude_atual,
 
                     "Longitude":
-                        location["longitude"]
+                        st.session_state.longitude_atual
                 }
             )
 
@@ -156,7 +189,7 @@ if st.session_state.jornada_ativa:
             )
 
 # =====================================================
-# VISUALIZAÇÃO
+# EVENTOS REGISTRADOS
 # =====================================================
 
 if len(st.session_state.eventos) > 0:
@@ -197,6 +230,7 @@ if (
     st.download_button(
         label="⬇ Baixar CSV da Jornada",
         data=csv,
-        file_name=f"jornada_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        file_name=
+        f"jornada_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv"
     )
