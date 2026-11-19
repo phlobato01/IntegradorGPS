@@ -27,12 +27,6 @@ if "jornada_ativa" not in st.session_state:
 if "eventos" not in st.session_state:
     st.session_state.eventos = []
 
-if "latitude_atual" not in st.session_state:
-    st.session_state.latitude_atual = None
-
-if "longitude_atual" not in st.session_state:
-    st.session_state.longitude_atual = None
-
 # =====================================================
 # INICIAR / ENCERRAR
 # =====================================================
@@ -84,13 +78,6 @@ if st.session_state.jornada_ativa:
 
     location = streamlit_geolocation()
 
-    if location:
-            st.write(
-                "Debug GPS:"
-            )
-
-            st.write(location)
-
     # --------------------------------------------
     # EXIBIÇÃO GPS
     # --------------------------------------------
@@ -99,19 +86,44 @@ if st.session_state.jornada_ativa:
         "Última posição obtida"
     )
 
-    st.write(
-        "Latitude:",
-        st.session_state.latitude_atual
-    )
+    if (
+        location
+        and location.get("latitude") is not None
+    ):
 
-    st.write(
-        "Longitude:",
-        st.session_state.longitude_atual
-    )
+        st.write(
+            "Latitude:",
+            location["latitude"]
+        )
+
+        st.write(
+            "Longitude:",
+            location["longitude"]
+        )
+
+        st.write(
+            "Precisão GPS (m):",
+            round(
+                location["accuracy"],
+                1
+            )
+        )
+
+    else:
+
+        st.write(
+            "GPS ainda não obtido."
+        )
 
     # --------------------------------------------
     # REGISTRAR EVENTO
     # --------------------------------------------
+
+    st.write(
+        "GPS disponível para gravação:"
+    )
+
+    st.write(location)
 
     if st.button(
         "✅ Registrar Evento"
@@ -124,9 +136,9 @@ if st.session_state.jornada_ativa:
             )
 
         elif (
-            st.session_state.latitude_atual
-            is None
-        ):
+        location is None
+        or location.get("latitude") is None
+    ):
 
             st.warning(
                 "Primeiro obtenha a posição GPS."
@@ -152,10 +164,16 @@ if st.session_state.jornada_ativa:
                         descricao,
 
                     "Latitude":
-                        st.session_state.latitude_atual,
+                        location["latitude"],
 
                     "Longitude":
-                        st.session_state.longitude_atual
+                        location["longitude"],
+
+                    "PrecisaoGPS":
+                        round(
+                            location["accuracy"],
+                            1
+                        )
                 }
             )
 
