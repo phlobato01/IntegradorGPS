@@ -1,3 +1,4 @@
+import sqlite3
 import streamlit as st
 import pandas as pd
 
@@ -18,14 +19,36 @@ st.title(
 )
 
 # =====================================================
+# SQLITE
+# =====================================================
+
+conn = sqlite3.connect(
+    "eventos.db",
+    check_same_thread=False
+)
+
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS eventos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data TEXT,
+    hora TEXT,
+    descricao TEXT,
+    latitude REAL,
+    longitude REAL,
+    precisao REAL
+)
+""")
+
+conn.commit()
+
+# =====================================================
 # SESSION STATE
 # =====================================================
 
 if "jornada_ativa" not in st.session_state:
     st.session_state.jornada_ativa = False
-
-if "eventos" not in st.session_state:
-    st.session_state.eventos = []
 
 # =====================================================
 # INICIAR / ENCERRAR
@@ -40,8 +63,7 @@ with c1:
     ):
 
         st.session_state.jornada_ativa = True
-        st.session_state.eventos = []
-
+        
         st.success(
             "Jornada iniciada."
         )
@@ -119,12 +141,6 @@ if st.session_state.jornada_ativa:
     # REGISTRAR EVENTO
     # --------------------------------------------
 
-    st.write(
-        "GPS disponível para gravação:"
-    )
-
-    st.write(location)
-
     if st.button(
         "✅ Registrar Evento"
     ):
@@ -136,9 +152,9 @@ if st.session_state.jornada_ativa:
             )
 
         elif (
-        location is None
-        or location.get("latitude") is None
-    ):
+            location is None
+            or location.get("latitude") is None
+        ):
 
             st.warning(
                 "Primeiro obtenha a posição GPS."
@@ -148,34 +164,32 @@ if st.session_state.jornada_ativa:
 
             agora = datetime.now()
 
-            st.session_state.eventos.append(
-                {
-                    "Data":
-                        agora.strftime(
-                            "%Y-%m-%d"
-                        ),
-
-                    "Hora":
-                        agora.strftime(
-                            "%H:%M:%S"
-                        ),
-
-                    "Descrição do Evento":
-                        descricao,
-
-                    "Latitude":
-                        location["latitude"],
-
-                    "Longitude":
-                        location["longitude"],
-
-                    "PrecisaoGPS":
-                        round(
-                            location["accuracy"],
-                            1
-                        )
-                }
+            cursor.execute(
+                """
+                INSERT INTO eventos (
+                    data,
+                    hora,
+                    descricao,
+                    latitude,
+                    longitude,
+                    precisao
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    agora.strftime("%Y-%m-%d"),
+                    agora.strftime("%H:%M:%S"),
+                    descricao,
+                    location["latitude"],
+                    location["longitude"],
+                    round(
+                        location["accuracy"],
+                        1
+                    )
+                )
             )
+
+            conn.commit()
 
             st.success(
                 "Evento registrado."
@@ -185,14 +199,19 @@ if st.session_state.jornada_ativa:
 # EVENTOS REGISTRADOS
 # =====================================================
 
-if len(st.session_state.eventos) > 0:
+df = pd.read_sql_query(
+    """
+    SELECT *
+    FROM eventos
+    ORDER BY id
+    """,
+    conn
+)
+
+if len(df) > 0:
 
     st.subheader(
         "Eventos Registrados"
-    )
-
-    df = pd.DataFrame(
-        st.session_state.eventos
     )
 
     st.dataframe(
@@ -204,26 +223,26 @@ if len(st.session_state.eventos) > 0:
 # EXPORTAÇÃO
 # =====================================================
 
-if (
-    not st.session_state.jornada_ativa
-    and len(st.session_state.eventos) > 0
-):
+df = pd.read_sql_query(
+    """
+    SELECT *
+    FROM eventos
+    ORDER BY id
+    """,
+    conn
+)
 
-    df = pd.DataFrame(
-        st.session_state.eventos
-    )
+if len(df) > 0:
 
     csv = df.to_csv(
         index=False,
         sep=";"
-    ).encode(
-        "utf-8"
-    )
+    ).encode("utf-8")
 
     st.download_button(
-        label="⬇ Baixar CSV da Jornada",
+        label="⬇ Baixar CSV",
         data=csv,
         file_name=
-        f"jornada_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        f"eventos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv"
     )
