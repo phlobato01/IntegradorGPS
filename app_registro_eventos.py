@@ -188,10 +188,107 @@ if len(df) > 0:
         "Eventos Registrados"
     )
 
-    st.dataframe(
+    df_editado = st.data_editor(
         df,
-        use_container_width=True
+        use_container_width=True,
+        num_rows="fixed",
+        key="tabela_eventos_editavel",
+        column_config={
+            "id": st.column_config.NumberColumn(
+                "ID",
+                disabled=True
+            ),
+            "data": st.column_config.TextColumn(
+                "Data",
+                help="Formato: AAAA-MM-DD"
+            ),
+            "hora": st.column_config.TextColumn(
+                "Hora",
+                help="Formato: HH:MM:SS"
+            ),
+            "descricao": st.column_config.TextColumn(
+                "Descrição"
+            ),
+            "latitude": st.column_config.NumberColumn(
+                "Latitude",
+                format="%.6f",
+                min_value=-90.0,
+                max_value=90.0
+            ),
+            "longitude": st.column_config.NumberColumn(
+                "Longitude",
+                format="%.6f",
+                min_value=-180.0,
+                max_value=180.0
+            ),
+            "precisao": st.column_config.NumberColumn(
+                "Precisão GPS (m)",
+                format="%.1f",
+                min_value=0.0
+            )
+        }
     )
+
+    if st.button(
+        "Salvar alterações da tabela",
+        key="salvar_tabela_eventos"
+    ):
+        erros = []
+        alterações = 0
+
+        for indice, evento_editado in df_editado.iterrows():
+            evento_original = df.loc[indice]
+
+            if evento_editado.to_dict() == evento_original.to_dict():
+                continue
+
+            if not str(evento_editado["descricao"]).strip():
+                erros.append(f"Evento #{evento_editado['id']}: descrição vazia.")
+                continue
+
+            try:
+                datetime.strptime(
+                    str(evento_editado["data"]),
+                    "%Y-%m-%d"
+                )
+                datetime.strptime(
+                    str(evento_editado["hora"]),
+                    "%H:%M:%S"
+                )
+            except ValueError:
+                erros.append(
+                    f"Evento #{evento_editado['id']}: data ou hora inválida."
+                )
+                continue
+
+            cursor.execute(
+                """
+                UPDATE eventos
+                SET data = ?, hora = ?, descricao = ?, latitude = ?,
+                    longitude = ?, precisao = ?
+                WHERE id = ?
+                """,
+                (
+                    str(evento_editado["data"]).strip(),
+                    str(evento_editado["hora"]).strip(),
+                    str(evento_editado["descricao"]).strip(),
+                    float(evento_editado["latitude"]),
+                    float(evento_editado["longitude"]),
+                    float(evento_editado["precisao"]),
+                    int(evento_editado["id"])
+                )
+            )
+            alterações += 1
+
+        conn.commit()
+
+        if erros:
+            for erro in erros:
+                st.error(erro)
+
+        if alterações > 0:
+            st.success(f"{alterações} evento(s) atualizado(s).")
+            st.rerun()
 
     eventos_por_id = {
         int(evento["id"]): evento
