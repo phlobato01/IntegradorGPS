@@ -1,4 +1,8 @@
+import io
 import sqlite3
+import zipfile
+import xml.etree.ElementTree as ET
+
 import streamlit as st
 import pandas as pd
 
@@ -13,6 +17,99 @@ def parse_hora(value):
         except (TypeError, ValueError):
             pass
     return datetime.now().time().replace(microsecond=0)
+
+
+def gerar_kmz_eventos(conteudo_csv):
+    colunas_esperadas = [
+        "id",
+        "data",
+        "hora",
+        "descricao",
+        "latitude",
+        "longitude",
+        "precisao"
+    ]
+    df_eventos = pd.read_csv(
+        io.BytesIO(conteudo_csv),
+        sep=";",
+        encoding="utf-8-sig"
+    )
+
+    if list(df_eventos.columns) != colunas_esperadas:
+        raise ValueError(
+            "O CSV deve ter as mesmas colunas e a mesma ordem do arquivo "
+            "exportado pelo app."
+        )
+
+    if df_eventos.empty:
+        raise ValueError("O CSV não contém eventos.")
+
+    df_eventos["latitude"] = pd.to_numeric(
+        df_eventos["latitude"],
+        errors="coerce"
+    )
+    df_eventos["longitude"] = pd.to_numeric(
+        df_eventos["longitude"],
+        errors="coerce"
+    )
+    coordenadas_invalidas = (
+        df_eventos["latitude"].isna()
+        | ~df_eventos["latitude"].between(-90, 90)
+        | df_eventos["longitude"].isna()
+        | ~df_eventos["longitude"].between(-180, 180)
+    )
+
+    if coordenadas_invalidas.any():
+        linhas = ", ".join(
+            str(indice + 2)
+            for indice in df_eventos.index[coordenadas_invalidas]
+        )
+        raise ValueError(
+            f"Latitude ou longitude inválida nas linhas: {linhas}."
+        )
+
+    namespace = "http://www.opengis.net/kml/2.2"
+    ET.register_namespace("", namespace)
+
+    def tag(nome):
+        return f"{{{namespace}}}{nome}"
+
+    raiz = ET.Element(tag("kml"))
+    documento = ET.SubElement(raiz, tag("Document"))
+    ET.SubElement(documento, tag("name")).text = "Eventos"
+
+    for _, evento in df_eventos.iterrows():
+        marcador = ET.SubElement(documento, tag("Placemark"))
+        descricao = str(evento["descricao"]).strip()
+        ET.SubElement(marcador, tag("name")).text = descricao or "Evento"
+        detalhes = (
+            f"Data: {evento['data']}\n"
+            f"Hora: {evento['hora']}\n"
+            f"Descrição: {descricao}\n"
+            f"Precisão GPS (m): {evento['precisao']}"
+        )
+        ET.SubElement(marcador, tag("description")).text = detalhes
+        ponto = ET.SubElement(marcador, tag("Point"))
+        ET.SubElement(ponto, tag("coordinates")).text = (
+            f"{evento['longitude']:.6f},{evento['latitude']:.6f},0"
+        )
+
+    conteudo_kml = ET.tostring(
+        raiz,
+        encoding="utf-8",
+        xml_declaration=True
+    )
+    arquivo_kmz = io.BytesIO()
+
+    with zipfile.ZipFile(
+        arquivo_kmz,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED
+    ) as kmz:
+        kmz.writestr("doc.kml", conteudo_kml)
+
+    return arquivo_kmz.getvalue()
+
 
 # =====================================================
 # CONFIGURAÇÃO
@@ -368,15 +465,58 @@ if len(df) > 0:
     if st.button(
         "🗑 Limpar Eventos"
     ):
-
         cursor.execute(
             "DELETE FROM eventos"
         )
-
         conn.commit()
-
         st.success(
             "Todos os eventos foram apagados."
         )
-
         st.rerun()
+
+# =====================================================
+# IMPORTAÇÃO E GERAÇÃO DE KMZ
+# =====================================================
+
+st.subheader("Gerar KMZ a partir de planilha de eventos")
+st.caption(
+    "Envie o CSV baixado neste app. O arquivo deve manter as mesmas "
+    "colunas e a mesma ordem da exportação."
+)
+
+coluna_esquerda, coluna_central, coluna_direita = st.columns([1, 3, 1])
+
+with coluna_central:
+    arquivo_eventos = st.file_uploader(
+        "Planilha de eventos (CSV)",
+        type=["csv"],
+        key="arquivo_eventos_kmz"
+    )
+
+    if st.button(
+        "Gerar arquivo KMZ",
+        key="gerar_kmz_eventos",
+        use_container_width=True
+    ):
+        if arquivo_eventos is None:
+            st.warning("Selecione uma planilha CSV antes de gerar o KMZ.")
+        else:
+            try:
+                conteudo_kmz = gerar_kmz_eventos(
+                    arquivo_eventos.getvalue()
+                )
+            except (
+                pd.errors.EmptyDataError,
+                pd.errors.ParserError,
+                UnicodeDecodeError,
+                ValueError
+            ) as erro:
+                st.error(f"Não foi possível gerar o KMZ: {erro}")
+            else:
+                st.download_button(
+                    "Baixar arquivo KMZ",
+                    data=conteudo_kmz,
+                    file_name="eventos.kmz",
+                    mime="application/vnd.google-earth.kmz",
+                    use_container_width=True
+                )
