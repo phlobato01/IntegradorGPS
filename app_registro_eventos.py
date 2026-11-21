@@ -296,7 +296,7 @@ if len(df) > 0:
     }
 
     evento_id = st.selectbox(
-        "Selecione um evento para editar ou excluir",
+        "Selecione um evento para excluir",
         options=list(eventos_por_id),
         format_func=lambda id_evento: (
             f"#{id_evento} - {eventos_por_id[id_evento]['data']} "
@@ -304,88 +304,6 @@ if len(df) > 0:
             f"{eventos_por_id[id_evento]['descricao']}"
         )
     )
-    evento = eventos_por_id[evento_id]
-
-    st.subheader(
-        "Editar evento selecionado"
-    )
-
-    with st.form(key=f"form_editar_evento_{evento_id}"):
-        descricao_editada = st.text_input(
-            "Descrição",
-            value=evento["descricao"],
-            key=f"descricao_evento_{evento_id}"
-        )
-        data_editada = st.date_input(
-            "Data",
-            value=datetime.strptime(
-                evento["data"],
-                "%Y-%m-%d"
-            ).date(),
-            key=f"data_evento_{evento_id}"
-        )
-        hora_editada = st.time_input(
-            "Hora",
-            value=parse_hora(evento["hora"]),
-            key=f"hora_evento_{evento_id}"
-        )
-
-        col_latitude, col_longitude, col_precisao = st.columns(3)
-
-        with col_latitude:
-            latitude_editada = st.number_input(
-                "Latitude",
-                min_value=-90.0,
-                max_value=90.0,
-                value=float(evento["latitude"]),
-                key=f"latitude_evento_{evento_id}"
-            )
-
-        with col_longitude:
-            longitude_editada = st.number_input(
-                "Longitude",
-                min_value=-180.0,
-                max_value=180.0,
-                value=float(evento["longitude"]),
-                key=f"longitude_evento_{evento_id}"
-            )
-
-        with col_precisao:
-            precisao_editada = st.number_input(
-                "Precisão GPS (m)",
-                min_value=0.0,
-                value=float(evento["precisao"]),
-                key=f"precisao_evento_{evento_id}"
-            )
-
-        salvar_edicao = st.form_submit_button(
-            "Salvar alterações"
-        )
-
-    if salvar_edicao:
-        if not descricao_editada.strip():
-            st.warning("Informe a descrição.")
-        else:
-            cursor.execute(
-                """
-                UPDATE eventos
-                SET data = ?, hora = ?, descricao = ?, latitude = ?,
-                    longitude = ?, precisao = ?
-                WHERE id = ?
-                """,
-                (
-                    data_editada.strftime("%Y-%m-%d"),
-                    hora_editada.strftime("%H:%M:%S"),
-                    descricao_editada.strip(),
-                    latitude_editada,
-                    longitude_editada,
-                    precisao_editada,
-                    evento_id
-                )
-            )
-            conn.commit()
-            st.success("Evento atualizado.")
-            st.rerun()
 
     if st.button(
         "🗑 Excluir evento selecionado",
