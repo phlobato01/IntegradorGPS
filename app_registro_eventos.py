@@ -5,6 +5,15 @@ import pandas as pd
 from datetime import datetime
 from streamlit_geolocation import streamlit_geolocation
 
+
+def parse_hora(value):
+    for formato in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(str(value), formato).time()
+        except (TypeError, ValueError):
+            pass
+    return datetime.now().time().replace(microsecond=0)
+
 # =====================================================
 # CONFIGURAÇÃO
 # =====================================================
@@ -220,11 +229,7 @@ if len(df) > 0:
         )
         hora_editada = st.time_input(
             "Hora",
-            value=datetime.strptime(
-                evento["hora"],
-                "%H:%M:%S"
-            ).time(),
-            format="HH:mm:ss",
+            value=parse_hora(evento["hora"]),
             key=f"hora_evento_{evento_id}"
         )
 
