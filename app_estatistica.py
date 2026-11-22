@@ -1,552 +1,353 @@
 import io
+
+import folium
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
 from scipy.stats import norm
+from streamlit_folium import st_folium
 
-# =========================================================
-# CONFIGURAÇÃO
-# =========================================================
 
 st.set_page_config(
     page_title="Análise Estatística AccZ",
     layout="wide"
 )
 
-st.title(
-    "Análise Estatística GPS x Acelerômetro"
-)
+st.title("Análise Estatística GPS x Acelerômetro")
 
-# =========================================================
-# LEITURA TXT
-# =========================================================
 
 def ler_txt(arquivo):
-
+    arquivo.seek(0)
     conteudo = arquivo.read()
 
-    for enc in [
-        "utf-8",
-        "cp1252",
-        "latin1"
-    ]:
-
+    for enc in ["utf-8", "cp1252", "latin1"]:
         try:
-
             texto = conteudo.decode(enc)
+            return pd.read_csv(io.StringIO(texto), sep="\t")
+        except (UnicodeDecodeError, pd.errors.ParserError):
+            continue
 
-            return pd.read_csv(
-                io.StringIO(texto),
-                sep="\t"
-            )
+    raise ValueError("Erro ao ler arquivo TXT do acelerômetro.")
 
-        except Exception:
-            pass
-
-    raise Exception(
-        "Erro ao ler arquivo TXT."
-    )
-
-# =========================================================
-# LEITURA CSV
-# =========================================================
 
 def ler_csv(arquivo):
-
+    arquivo.seek(0)
     conteudo = arquivo.read()
 
-    for enc in [
-        "utf-8",
-        "cp1252",
-        "latin1"
-    ]:
-
+    for enc in ["utf-8", "cp1252", "latin1"]:
         try:
-
             texto = conteudo.decode(enc)
+        except UnicodeDecodeError:
+            continue
 
-            df = pd.read_csv(
-                io.StringIO(texto),
-                sep=";"
-            )
+        for separador in [";", ","]:
+            try:
+                dados = pd.read_csv(io.StringIO(texto), sep=separador)
+            except pd.errors.ParserError:
+                continue
 
-            if len(df.columns) > 1:
-                return df
+            if len(dados.columns) > 1:
+                return dados
 
-            df = pd.read_csv(
-                io.StringIO(texto),
-                sep=","
-            )
+    raise ValueError("Não foi possível interpretar o CSV GPS.")
 
-            if len(df.columns) > 1:
-                return df
 
-            linhas = texto.splitlines()
+def processar_dados(arquivo_acc, arquivo_gps):
+    acc = ler_txt(arquivo_acc)
+    acc.columns = acc.columns.str.strip()
 
-            cabecalho = linhas[0].split(",")
-
-            dados = [
-                linha.split(",")
-                for linha in linhas[1:]
-            ]
-
-            return pd.DataFrame(
-                dados,
-                columns=cabecalho
-            )
-
-        except Exception:
-            pass
-
-    raise Exception(
-        "Não foi possível interpretar o CSV GPS."
-    )
-
-# =========================================================
-# DETECTOR DE CONSTANTES
-# =========================================================
-
-def detectar_constantes(
-    serie,
-    timestamps,
-    minimo_repeticoes=5
-):
-
-    resultado = []
-
-    valor_atual = None
-    inicio = None
-    contador = 0
-
-    for i, valor in enumerate(serie):
-
-        if valor == valor_atual:
-
-            contador += 1
-
-        else:
-
-            if contador >= minimo_repeticoes:
-
-                resultado.append(
-                    {
-                        "inicio": timestamps.iloc[inicio],
-                        "fim": timestamps.iloc[i - 1],
-                        "valor": valor_atual,
-                        "repeticoes": contador
-                    }
-                )
-
-            valor_atual = valor
-            inicio = i
-            contador = 1
-
-    return pd.DataFrame(resultado)
-
-# =========================================================
-# ENTRADA
-# =========================================================
-
-arquivo_acc = st.file_uploader(
-    "TXT do acelerômetro",
-    type=["txt"]
-)
-
-arquivo_gps = st.file_uploader(
-    "CSV GPS",
-    type=["csv"]
-)
-
-# =========================================================
-# PROCESSAMENTO
-# =========================================================
-
-if st.button("Analisar"):
-
-    if arquivo_acc is None:
-
-        st.warning(
-            "Selecione o TXT do acelerômetro."
+    colunas_acc = ["time", "AccX(g)", "AccY(g)", "AccZ(g)"]
+    faltando_acc = [coluna for coluna in colunas_acc if coluna not in acc.columns]
+    if faltando_acc:
+        raise ValueError(
+            "Colunas ausentes no TXT do acelerômetro: "
+            f"{', '.join(faltando_acc)}."
         )
 
-        st.stop()
-
-    if arquivo_gps is None:
-
-        st.warning(
-            "Selecione o CSV GPS."
-        )
-
-        st.stop()
-
-    # =====================================================
-    # ACELERÔMETRO
-    # =====================================================
-
-    acc = ler_txt(
-        arquivo_acc
-    )
-
-    acc = acc[
-        [
-            "time",
-            "AccZ(g)"
-        ]
-    ].copy()
-
-    acc.columns = [
-        "data_hora_acc",
-        "accz"
-    ]
-
-    acc["accz"] = pd.to_numeric(
-        acc["accz"],
-        errors="coerce"
-    )
+    acc = acc[colunas_acc].copy()
+    acc.columns = ["data_hora_acc", "accx", "accy", "accz"]
+    for eixo in ["accx", "accy", "accz"]:
+        acc[eixo] = pd.to_numeric(acc[eixo], errors="coerce")
 
     acc["datetime"] = pd.to_datetime(
         acc["data_hora_acc"],
-        format="%Y-%m-%dT%H:%M:%S.%f",
         errors="coerce"
     )
-
-    acc = acc.dropna()
-
+    acc = acc.dropna(subset=["datetime", "accx", "accy", "accz"])
     acc["datetime_acc"] = acc["datetime"]
 
-    # =====================================================
-    # GPS
-    # =====================================================
-
-    gps = ler_csv(
-        arquivo_gps
-    )
-
-    gps.columns = (
-        gps.columns
-        .str.strip()
-    )
+    gps = ler_csv(arquivo_gps)
+    gps.columns = gps.columns.str.strip()
 
     if "local_time" in gps.columns:
-
         coluna_tempo = "local_time"
-
     elif "time" in gps.columns:
-
         coluna_tempo = "time"
-
     else:
-
-        st.error(
-            f"Colunas encontradas: {gps.columns.tolist()}"
+        raise ValueError(
+            "O CSV GPS precisa conter uma coluna 'local_time' ou 'time'."
         )
 
-        st.stop()
-
-    colunas_obrigatorias = [
-        coluna_tempo,
-        "latitude",
-        "longitude"
-    ]
-
-    faltando = [
-        c
-        for c in colunas_obrigatorias
-        if c not in gps.columns
-    ]
-
-    if faltando:
-
-        st.error(
-            f"Colunas ausentes: {faltando}"
+    colunas_gps = [coluna_tempo, "latitude", "longitude"]
+    faltando_gps = [coluna for coluna in colunas_gps if coluna not in gps.columns]
+    if faltando_gps:
+        raise ValueError(
+            f"Colunas ausentes no CSV GPS: {', '.join(faltando_gps)}."
         )
 
-        st.write(
-            gps.columns.tolist()
+    gps = gps[colunas_gps].copy()
+    gps.columns = ["data_hora_gps", "latitude", "longitude"]
+
+    for coordenada in ["latitude", "longitude"]:
+        gps[coordenada] = pd.to_numeric(
+            gps[coordenada].astype(str).str.replace(",", ".", regex=False),
+            errors="coerce"
         )
-
-        st.stop()
-
-    gps = gps[
-        [
-            coluna_tempo,
-            "latitude",
-            "longitude"
-        ]
-    ].copy()
-
-    gps.columns = [
-        "data_hora_gps",
-        "latitude",
-        "longitude"
-    ]
-
-    gps["latitude"] = (
-        gps["latitude"]
-        .astype(str)
-        .str.replace(",", ".", regex=False)
-    )
-
-    gps["longitude"] = (
-        gps["longitude"]
-        .astype(str)
-        .str.replace(",", ".", regex=False)
-    )
-
-    gps["latitude"] = pd.to_numeric(
-        gps["latitude"],
-        errors="coerce"
-    )
-
-    gps["longitude"] = pd.to_numeric(
-        gps["longitude"],
-        errors="coerce"
-    )
 
     gps["datetime"] = pd.to_datetime(
-        gps["data_hora_gps"]
-            .astype(str)
-            .str.slice(0, 23),
+        gps["data_hora_gps"].astype(str).str.slice(0, 23),
         errors="coerce"
     )
-
-    gps = gps.dropna()
-
+    gps = gps.dropna(subset=["datetime", "latitude", "longitude"])
+    gps = gps[
+        gps["latitude"].between(-90, 90)
+        & gps["longitude"].between(-180, 180)
+    ].copy()
     gps["datetime_gps"] = gps["datetime"]
 
-    # =====================================================
-    # INTEGRAÇÃO
-    # =====================================================
+    if acc.empty:
+        raise ValueError("O TXT não contém leituras válidas dos três eixos.")
+    if gps.empty:
+        raise ValueError("O CSV não contém coordenadas GPS válidas.")
 
-    acc = acc.sort_values(
-        "datetime"
-    )
+    acc = acc.sort_values("datetime")
+    gps = gps.sort_values("datetime")
 
-    gps = gps.sort_values(
-        "datetime"
-    )
-
-    resultado = pd.merge_asof(
+    return pd.merge_asof(
         acc,
         gps,
         on="datetime",
         direction="nearest"
     )
 
-    # =====================================================
-    # ESTATÍSTICAS
-    # =====================================================
 
-    st.header(
-        "Resumo Estatístico"
+def criar_mapa_inspecao(resultado, limites):
+    rota = resultado[["latitude", "longitude"]].dropna()
+    if rota.empty:
+        return None, 0
+
+    coordenadas = list(zip(rota["latitude"], rota["longitude"]))
+    mapa = folium.Map(
+        location=[rota["latitude"].mean(), rota["longitude"].mean()],
+        zoom_start=16,
+        control_scale=True
     )
 
+    if len(coordenadas) > 1:
+        folium.PolyLine(
+            coordenadas,
+            color="blue",
+            weight=4,
+            opacity=0.75,
+            tooltip="Trajeto inspecionado"
+        ).add_to(mapa)
+
+    colunas_eixos = {
+        "X": "accx",
+        "Y": "accy",
+        "Z": "accz"
+    }
+
+    eventos = pd.Series(False, index=resultado.index)
+    for eixo, coluna in colunas_eixos.items():
+        minimo, maximo = limites[eixo]
+        eventos |= (
+            (resultado[coluna] > maximo)
+            | (resultado[coluna] < minimo)
+        )
+
+    leituras_evento = resultado.loc[eventos]
+    for _, leitura in leituras_evento.iterrows():
+        detalhes = []
+        excedeu_maximo = False
+        excedeu_minimo = False
+
+        for eixo, coluna in colunas_eixos.items():
+            valor = leitura[coluna]
+            minimo, maximo = limites[eixo]
+
+            if valor > maximo:
+                excedeu_maximo = True
+                detalhes.append(
+                    f"Acc{eixo} acima do máximo: {valor:.3f} g"
+                )
+            elif valor < minimo:
+                excedeu_minimo = True
+                detalhes.append(
+                    f"Acc{eixo} abaixo do mínimo: {valor:.3f} g"
+                )
+
+        if not detalhes:
+            continue
+
+        if excedeu_maximo and excedeu_minimo:
+            cor = "orange"
+        elif excedeu_maximo:
+            cor = "red"
+        else:
+            cor = "purple"
+
+        detalhes.insert(
+            0,
+            f"Data/hora: {leitura['datetime_acc']}"
+        )
+        folium.CircleMarker(
+            location=[leitura["latitude"], leitura["longitude"]],
+            radius=6,
+            color=cor,
+            fill=True,
+            fill_color=cor,
+            fill_opacity=0.9,
+            popup=folium.Popup("<br>".join(detalhes), max_width=350)
+        ).add_to(mapa)
+
+    if coordenadas:
+        folium.Marker(
+            coordenadas[0],
+            tooltip="Início da inspeção",
+            icon=folium.Icon(color="green")
+        ).add_to(mapa)
+        folium.Marker(
+            coordenadas[-1],
+            tooltip="Fim da inspeção",
+            icon=folium.Icon(color="blue")
+        ).add_to(mapa)
+
+    return mapa, len(leituras_evento)
+
+
+arquivo_acc = st.file_uploader(
+    "TXT do acelerômetro",
+    type=["txt"]
+)
+arquivo_gps = st.file_uploader(
+    "CSV GPS",
+    type=["csv"]
+)
+
+if st.button("Analisar"):
+    st.session_state.pop("resultado_estatistica", None)
+    if arquivo_acc is None:
+        st.error("Selecione o TXT do acelerômetro.")
+    elif arquivo_gps is None:
+        st.error("Selecione o CSV GPS.")
+    else:
+        try:
+            st.session_state["resultado_estatistica"] = processar_dados(
+                arquivo_acc,
+                arquivo_gps
+            )
+        except (ValueError, KeyError) as erro:
+            st.error(str(erro))
+
+if "resultado_estatistica" in st.session_state:
+    resultado = st.session_state["resultado_estatistica"]
+
+    st.header("Resumo Estatístico AccZ")
     dados = resultado["accz"]
-
     c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Média", round(dados.mean(), 4))
+    c2.metric("Desvio Padrão", round(dados.std(), 4))
+    c3.metric("Mínimo", round(dados.min(), 4))
+    c4.metric("Máximo", round(dados.max(), 4))
 
-    c1.metric(
-        "Média",
-        round(dados.mean(), 4)
-    )
-
-    c2.metric(
-        "Desvio Padrão",
-        round(dados.std(), 4)
-    )
-
-    c3.metric(
-        "Mínimo",
-        round(dados.min(), 4)
-    )
-
-    c4.metric(
-        "Máximo",
-        round(dados.max(), 4)
-    )
-
-    # =====================================================
-    # CURVA DE GAUSS
-    # =====================================================
-
-    st.header(
-        "Curva de Gauss"
-    )
-
+    st.header("Curva de Gauss AccZ")
     media = dados.mean()
     sigma = dados.std()
-
-    hist_y, hist_x = np.histogram(
-        dados,
-        bins=80,
-        density=True
-    )
-
-    centro = (
-        hist_x[:-1] +
-        hist_x[1:]
-    ) / 2
-
-    curva = norm.pdf(
-        centro,
-        media,
-        sigma
-    )
+    hist_y, hist_x = np.histogram(dados, bins=80, density=True)
+    centro = (hist_x[:-1] + hist_x[1:]) / 2
+    curva = norm.pdf(centro, media, sigma)
 
     fig_gauss = go.Figure()
-
     fig_gauss.add_trace(
-        go.Bar(
-            x=centro,
-            y=hist_y,
-            name="Histograma"
-        )
+        go.Bar(x=centro, y=hist_y, name="Histograma")
     )
-
     fig_gauss.add_trace(
-        go.Scatter(
-            x=centro,
-            y=curva,
-            mode="lines",
-            name="Gauss"
-        )
+        go.Scatter(x=centro, y=curva, mode="lines", name="Gauss")
     )
+    st.plotly_chart(fig_gauss, width="stretch")
 
-    st.plotly_chart(
-        fig_gauss,
-        use_container_width=True
-    )
-
-    # =====================================================
-    # SÉRIE TEMPORAL
-    # =====================================================
-
-    st.header(
-        "AccZ ao longo do tempo"
-    )
-
-    fig_tempo = go.Figure()
-
-    fig_tempo.add_trace(
-        go.Scatter(
-            x=resultado["datetime_acc"],
-            y=resultado["accz"],
-            mode="lines",
-            name="AccZ"
-        )
-    )
-
-    fig_tempo.update_xaxes(
-        rangeslider_visible=True
-    )
-
-    st.plotly_chart(
-        fig_tempo,
-        use_container_width=True
-    )
-
-    # =====================================================
-    # CONGELAMENTOS
-    # =====================================================
-
-    st.header(
-        "Possíveis Falhas / Congelamentos"
-    )
-
-    acc_constante = detectar_constantes(
-        resultado["accz"],
-        resultado["datetime_acc"]
-    )
-
-    gps_constante = detectar_constantes(
-        resultado["data_hora_gps"],
-        resultado["datetime_acc"]
-    )
-
-    tempo_acc_constante = detectar_constantes(
-        resultado["data_hora_acc"],
-        resultado["datetime_acc"]
-    )
-
-    st.subheader(
-        "AccZ constante"
-    )
-
-    if acc_constante.empty:
-
-        st.success(
-            "Nenhum período encontrado."
-        )
-
-    else:
-
-        st.dataframe(
-            acc_constante
-        )
-
-    st.subheader(
-        "Timestamp GPS constante"
-    )
-
-    if gps_constante.empty:
-
-        st.success(
-            "Nenhum período encontrado."
-        )
-
-    else:
-
-        st.dataframe(
-            gps_constante
-        )
-
-    st.subheader(
-        "Timestamp acelerômetro constante"
-    )
-
-    if tempo_acc_constante.empty:
-
-        st.success(
-            "Nenhum período encontrado."
-        )
-
-    else:
-
-        st.dataframe(
-            tempo_acc_constante
-        )
-
-    # =====================================================
-    # EXPORTAÇÃO
-    # =====================================================
-
-    relatorio = pd.concat(
-        [
-            acc_constante.assign(
-                tipo="ACCZ"
-            ),
-            gps_constante.assign(
-                tipo="GPS"
-            ),
-            tempo_acc_constante.assign(
-                tipo="TIMESTAMP_ACC"
+    st.header("Acelerações ao longo do tempo")
+    for eixo in ["x", "y", "z"]:
+        fig_tempo = go.Figure()
+        fig_tempo.add_trace(
+            go.Scatter(
+                x=resultado["datetime_acc"],
+                y=resultado[f"acc{eixo}"],
+                mode="lines",
+                name=f"Acc{eixo.upper()}"
             )
-        ],
-        ignore_index=True
-    )
+        )
+        fig_tempo.update_xaxes(rangeslider_visible=True)
+        fig_tempo.update_layout(
+            title=f"Acc{eixo.upper()} ao longo do tempo",
+            uirevision=f"acc-{eixo}"
+        )
+        st.plotly_chart(
+            fig_tempo,
+            width="stretch",
+            key=f"grafico_acc_{eixo}"
+        )
 
-    csv = relatorio.to_csv(
-        index=False,
-        sep=";"
-    ).encode(
-        "utf-8"
+    st.header("Limites de aceleração para os eventos")
+    st.caption(
+        "Os eventos são marcados quando a aceleração fica acima do máximo "
+        "ou abaixo do mínimo definido para cada eixo."
     )
+    colunas_limites = st.columns(3)
+    limites = {}
 
-    st.download_button(
-        "Baixar Relatório de Anomalias",
-        csv,
-        "anomalias.csv",
-        "text/csv"
-    )
+    for coluna, eixo in zip(colunas_limites, ["X", "Y", "Z"]):
+        with coluna:
+            st.subheader(f"Eixo {eixo}")
+            minimo = st.number_input(
+                f"Mínimo Acc{eixo} (g)",
+                value=-1.5,
+                step=0.1,
+                key=f"limite_minimo_{eixo.lower()}"
+            )
+            maximo = st.number_input(
+                f"Máximo Acc{eixo} (g)",
+                value=1.5,
+                step=0.1,
+                key=f"limite_maximo_{eixo.lower()}"
+            )
+            limites[eixo] = (minimo, maximo)
+
+    eixos_invalidos = [
+        eixo for eixo, (minimo, maximo) in limites.items()
+        if minimo >= maximo
+    ]
+
+    if eixos_invalidos:
+        st.error(
+            "Em cada eixo, o valor mínimo deve ser menor que o máximo: "
+            + ", ".join(eixos_invalidos)
+            + "."
+        )
+    else:
+        st.header("Mapa da inspeção")
+        mapa, total_eventos = criar_mapa_inspecao(resultado, limites)
+        st.write(f"Leituras no trajeto: {len(resultado)}")
+        st.write(f"Eventos fora dos limites: {total_eventos}")
+
+        if mapa is None:
+            st.warning("Não há coordenadas válidas para exibir no mapa.")
+        else:
+            st_folium(
+                mapa,
+                use_container_width=True,
+                height=600,
+                key="mapa_inspecao"
+            )
